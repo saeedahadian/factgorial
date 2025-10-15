@@ -1,6 +1,7 @@
 package flags
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 )
@@ -55,24 +56,55 @@ func (b *boolValue) String() string {
 	return strconv.FormatBool(bool(*b))
 }
 
-func ParseFlags(args []string) []*Flag {
+func ParseFlags(args []string) ([]*Flag, error) {
 	var flags []*Flag
-	for i, arg := range args[1:] {
-		key := flagKeyRegex.FindString(args[i-1])
-		if key != "" {
-			if !flagKeyRegex.MatchString(arg) {
-				_, err := strconv.Atoi(arg)
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		prevArg := args[i-1]
+		_, isFlagKey := parseKey(arg)
+		prevArgKey, isPrevFlagKey := parseKey(prevArg)
+		if isPrevFlagKey {
+			if isFlagKey {
+				flag, err := NewBoolFlag(prevArgKey, "true")
 				if err != nil {
-					flags = append(flags, NewFlag[*stringValue](key, arg))
-					continue
+					return nil, fmt.Errorf("key %q: %w", prevArgKey, err)
 				}
-
-				flags = append(flags, NewFlag[*intValue](key, arg))
+				flags = append(flags, flag)
 				continue
 			}
 
-			flags = append(flags, NewFlag[*boolValue](key, "true"))
+			if _, err := strconv.Atoi(arg); err == nil {
+				flag, err := NewIntFlag(prevArgKey, arg)
+				if err != nil {
+					return nil, fmt.Errorf("key %q: %w", prevArgKey, err)
+				}
+				flags = append(flags, flag)
+				continue
+			}
+
+			if _, err := strconv.ParseBool(arg); err == nil {
+				flag, err := NewBoolFlag(prevArgKey, arg)
+				if err != nil {
+					return nil, fmt.Errorf("key %q: %w", prevArgKey, err)
+				}
+				flags = append(flags, flag)
+				continue
+			}
+
+			flag, err := NewStringFlag(prevArgKey, arg)
+			if err != nil {
+				return nil, fmt.Errorf("key %q: %w", prevArgKey, err)
+			}
+			flags = append(flags, flag)
 		}
 	}
-	return flags
+	return flags, nil
+}
+
+func parseKey(arg string) (string, bool) {
+	matches := flagKeyRegex.FindStringSubmatch(arg)
+	if len(matches) < 2 {
+		return "", false
+	}
+	return matches[1], true
 }
